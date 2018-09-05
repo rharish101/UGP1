@@ -25,5 +25,5 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --queue_thread 10 \
     --vgg_scaling 0.0061 \
     --pre_trained_model True \
-    --checkpoint ./experiment_SRGAN_MSE/model-500000
+    --checkpoint ./experiment_SRResnet/model-1000000
 

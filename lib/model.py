@@ -78,7 +78,7 @@ def data_loader(FLAGS):
                     offset_h = tf.cast(tf.floor(tf.random_uniform([], 0, tf.cast(input_size[0], tf.float32) - FLAGS.crop_size)),
                                        dtype=tf.int32)
 
-                    if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
+                    if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet' or FLAGS.task == 'MAD_SRGAN':
                         inputs = tf.image.crop_to_bounding_box(inputs, offset_h, offset_w, FLAGS.crop_size,
                                                                FLAGS.crop_size)
                         targets = tf.image.crop_to_bounding_box(targets, offset_h*4, offset_w*4, FLAGS.crop_size*4,
@@ -106,7 +106,7 @@ def data_loader(FLAGS):
                     input_images = tf.identity(inputs)
                     target_images = tf.identity(targets)
 
-            if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
+            if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet' or FLAGS.task == 'MAD_SRGAN':
                 input_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 3])
                 target_images.set_shape([FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
             elif FLAGS.task == 'denoise':
@@ -122,7 +122,7 @@ def data_loader(FLAGS):
                                             batch_size=FLAGS.batch_size, num_threads=FLAGS.queue_thread, allow_smaller_final_batch=True)
 
         steps_per_epoch = int(math.ceil(len(image_list_LR) / FLAGS.batch_size))
-        if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
+        if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet' or FLAGS.task == 'MAD_SRGAN':
             inputs_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
             targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
         elif FLAGS.task == 'denoise':

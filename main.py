@@ -307,7 +307,7 @@ elif FLAGS.mode == 'train':
         else:
             raise ValueError('Unknown pre_trained model type!!')
 
-        var_list3 = [{}] * 4
+        var_list3 = [{}, {}, {}, {}]
         for var in var_list2:
             num = int(re.search(r"mini_gen_[1-4]", var.name).group()[-1]) - 1
             var_list3[num][re.sub(r"mini_gen_[1-4]/", "", var.name).split(":")[0]] = var

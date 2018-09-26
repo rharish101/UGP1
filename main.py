@@ -44,6 +44,7 @@ Flags.DEFINE_integer('num_resblock', 16, 'How many residual blocks are there in 
 Flags.DEFINE_string('perceptual_mode', 'VGG54', 'The type of feature used in perceptual loss')
 Flags.DEFINE_float('EPS', 1e-12, 'The eps added to prevent nan')
 Flags.DEFINE_float('ratio', 0.001, 'The ratio between content loss and adversarial loss')
+Flags.DEFINE_float('overlap_ratio', 0.1, 'The ratio between content loss and overlap loss')
 Flags.DEFINE_float('vgg_scaling', 0.0061, 'The scaling factor for the perceptual loss if using vgg perceptual loss')
 # The training parameters
 Flags.DEFINE_float('learning_rate', 0.0001, 'The learning rate for the network')
@@ -266,11 +267,19 @@ elif FLAGS.mode == 'train':
         tf.summary.image('outputs_summary', converted_outputs)
 
     # Add scalar summary
-    if FLAGS.task == "SRGAN" or FLAGS.task == "MAD_SRGAN":
+    if FLAGS.task == "SRGAN":
         tf.summary.scalar('discriminator_loss', Net.discrim_loss)
         tf.summary.scalar('adversarial_loss', Net.adversarial_loss)
         tf.summary.scalar('content_loss', Net.content_loss)
         tf.summary.scalar('generator_loss', Net.content_loss + FLAGS.ratio*Net.adversarial_loss)
+        tf.summary.scalar('PSNR', psnr)
+        tf.summary.scalar('learning_rate', Net.learning_rate)
+    elif FLAGS.task == "MAD_SRGAN":
+        tf.summary.scalar('discriminator_loss', Net.discrim_loss)
+        tf.summary.scalar('adversarial_loss', Net.adversarial_loss)
+        tf.summary.scalar('overlap_loss', Net.overlap_loss)
+        tf.summary.scalar('content_loss', Net.content_loss)
+        tf.summary.scalar('generator_loss', Net.content_loss + Net.overlap_loss + FLAGS.ratio*Net.adversarial_loss)
         tf.summary.scalar('PSNR', psnr)
         tf.summary.scalar('learning_rate', Net.learning_rate)
     elif FLAGS.task == 'SRResnet':
@@ -363,9 +372,17 @@ elif FLAGS.mode == 'train':
             }
 
             if ((step+1) % FLAGS.display_freq) == 0:
-                if FLAGS.task == 'SRGAN' or FLAGS.task == "MAD_SRGAN":
+                if FLAGS.task == 'SRGAN':
                     fetches["discrim_loss"] = Net.discrim_loss
                     fetches["adversarial_loss"] = Net.adversarial_loss
+                    fetches["content_loss"] = Net.content_loss
+                    fetches["PSNR"] = psnr
+                    fetches["learning_rate"] = Net.learning_rate
+                    fetches["global_step"] = Net.global_step
+                elif FLAGS.task == "MAD_SRGAN":
+                    fetches["discrim_loss"] = Net.discrim_loss
+                    fetches["adversarial_loss"] = Net.adversarial_loss
+                    fetches["overlap_loss"] = Net.overlap_loss
                     fetches["content_loss"] = Net.content_loss
                     fetches["PSNR"] = psnr
                     fetches["learning_rate"] = Net.learning_rate
@@ -391,11 +408,19 @@ elif FLAGS.mode == 'train':
                 rate = (step + 1) * FLAGS.batch_size / (time.time() - start)
                 remaining = (max_iter - step) * FLAGS.batch_size / rate
                 print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
-                if FLAGS.task == 'SRGAN' or FLAGS.task == "MAD_SRGAN":
+                if FLAGS.task == 'SRGAN':
                     print("global_step", results["global_step"])
                     print("PSNR", results["PSNR"])
                     print("discrim_loss", results["discrim_loss"])
                     print("adversarial_loss", results["adversarial_loss"])
+                    print("content_loss", results["content_loss"])
+                    print("learning_rate", results['learning_rate'])
+                if FLAGS.task == "MAD_SRGAN":
+                    print("global_step", results["global_step"])
+                    print("PSNR", results["PSNR"])
+                    print("discrim_loss", results["discrim_loss"])
+                    print("adversarial_loss", results["adversarial_loss"])
+                    print("overlap_loss", results["overlap_loss"])
                     print("content_loss", results["content_loss"])
                     print("learning_rate", results['learning_rate'])
                 elif FLAGS.task == 'SRResnet':

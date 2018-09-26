@@ -530,23 +530,30 @@ def SRResnet(inputs, targets, FLAGS):
 def MAD_SRGAN(inputs, targets, FLAGS):
     # Define the container of the parameter
     Network = collections.namedtuple('Network', 'discrim_real_output, discrim_fake_output, discrim_loss, \
-        discrim_grads_and_vars, adversarial_loss, content_loss, gen_grads_and_vars, gen_output, train, global_step, \
-        learning_rate')
+        discrim_grads_and_vars, adversarial_loss, overlap_loss, content_loss, gen_grads_and_vars, gen_output, train, \
+        global_step, learning_rate')
 
     # Build the generator part
     with tf.variable_scope('generator'):
-        output_channel = targets.get_shape().as_list()[-1]
+        output_channel  = targets.get_shape().as_list()[-1]
         input_shape = inputs.get_shape().as_list()
         with tf.variable_scope('mini_gen_1', reuse=False):
-            gen_output_1 = generator(inputs[:, :int(input_shape[1]/2), :int(input_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_1 = generator(inputs[:, :int(5 * input_shape[1] / 8), :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_2', reuse=False):
-            gen_output_2 = generator(inputs[:, :int(input_shape[1]/2), int(input_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_2 = generator(inputs[:, :int(5 * input_shape[1] / 8), int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_3', reuse=False):
-            gen_output_3 = generator(inputs[:, int(input_shape[1]/2):, :int(input_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_3 = generator(inputs[:, int(3 * input_shape[1] / 8):, :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_4', reuse=False):
-            gen_output_4 = generator(inputs[:, int(input_shape[1]/2):, int(input_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
-        gen_output_12 = tf.concat([gen_output_1, gen_output_2], axis=2)
-        gen_output_34 = tf.concat([gen_output_3, gen_output_4], axis=2)
+            gen_output_4 = generator(inputs[:, int(3 * input_shape[1] / 8):, int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
+        small_shape = gen_output_1.get_shape().as_list()
+        gen_output_12 = tf.concat([
+            gen_output_1[:, :int(4 * small_shape[1] / 5), :int(4 * small_shape[2] / 5), :],
+            gen_output_2[:, :int(4 * small_shape[1] / 5), int(1 * small_shape[2] / 5):, :],
+        ], axis=2)
+        gen_output_34 = tf.concat([
+            gen_output_3[:, int(1 * small_shape[1] / 5):, :int(4 * small_shape[2] / 5), :],
+            gen_output_4[:, int(1 * small_shape[1] / 5):, int(1 * small_shape[2] / 5):, :],
+        ], axis=2)
         gen_output = tf.concat([gen_output_12, gen_output_34], axis=1)
         gen_output.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
 
@@ -593,11 +600,28 @@ def MAD_SRGAN(inputs, targets, FLAGS):
             else:
                 content_loss = FLAGS.vgg_scaling*tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=[3]))
 
+        with tf.variable_scope('overlap_loss'):
+            # Compute the euclidean distance between the overlaps
+            diff_12 = gen_output_1[:, :, int(3 * small_shape[2] / 5):, :] - gen_output_2[:, :, :int(2 * small_shape[2] / 5), :]
+            diff_13 = gen_output_1[:, int(3 * small_shape[1] / 5):, :, :] - gen_output_3[:, :int(2 * small_shape[1] / 5), :, :]
+            diff_14 = gen_output_1[:, int(3 * small_shape[1] / 5):, int(3 * small_shape[2] / 5):, :] - gen_output_4[:, :int(2 * small_shape[1] / 5), :int(2 * small_shape[2] / 5), :]
+            diff_23 = gen_output_2[:, int(3 * small_shape[1] / 5):, :int(2 * small_shape[2] / 5), :] - gen_output_3[:, :int(2 * small_shape[1] / 5), int(3 * small_shape[2] / 5):, :]
+            diff_24 = gen_output_2[:, int(3 * small_shape[2] / 5):, :, :] - gen_output_4[:, :int(2 * small_shape[2] / 5), :, :]
+            diff_34 = gen_output_3[:, :, int(3 * small_shape[2] / 5):, :] - gen_output_4[:, :, :int(2 * small_shape[2] / 5), :]
+
+            overlap_loss = tf.reduce_mean(tf.reduce_sum(tf.square(diff_12), axis=[3]))
+            overlap_loss += tf.reduce_mean(tf.reduce_sum(tf.square(diff_13), axis=[3]))
+            overlap_loss += tf.reduce_mean(tf.reduce_sum(tf.square(diff_14), axis=[3]))
+            overlap_loss += tf.reduce_mean(tf.reduce_sum(tf.square(diff_23), axis=[3]))
+            overlap_loss += tf.reduce_mean(tf.reduce_sum(tf.square(diff_24), axis=[3]))
+            overlap_loss += tf.reduce_mean(tf.reduce_sum(tf.square(diff_34), axis=[3]))
+
         with tf.variable_scope('adversarial_loss'):
             adversarial_loss = tf.reduce_mean(-tf.log(discrim_fake_output + FLAGS.EPS))
 
-        gen_loss = content_loss + (FLAGS.ratio)*adversarial_loss
+        gen_loss = content_loss + (FLAGS.overlap_ratio)*overlap_loss + (FLAGS.ratio)*adversarial_loss
         print(adversarial_loss.get_shape())
+        print(overlap_loss.get_shape())
         print(content_loss.get_shape())
 
     # Calculating the discriminator loss
@@ -629,7 +653,7 @@ def MAD_SRGAN(inputs, targets, FLAGS):
 
     #[ToDo] If we do not use moving average on loss??
     exp_averager = tf.train.ExponentialMovingAverage(decay=0.99)
-    update_loss = exp_averager.apply([discrim_loss, adversarial_loss, content_loss])
+    update_loss = exp_averager.apply([discrim_loss, adversarial_loss, overlap_loss, content_loss])
 
     return Network(
         discrim_real_output = discrim_real_output,
@@ -637,6 +661,7 @@ def MAD_SRGAN(inputs, targets, FLAGS):
         discrim_loss = exp_averager.average(discrim_loss),
         discrim_grads_and_vars = discrim_grads_and_vars,
         adversarial_loss = exp_averager.average(adversarial_loss),
+        overlap_loss = exp_averager.average(overlap_loss),
         content_loss = exp_averager.average(content_loss),
         gen_grads_and_vars = gen_grads_and_vars,
         gen_output = gen_output,

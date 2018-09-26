@@ -342,7 +342,7 @@ elif FLAGS.mode == 'train':
             }
 
             if ((step+1) % FLAGS.display_freq) == 0:
-                if FLAGS.task == 'SRGAN':
+                if FLAGS.task == 'SRGAN' or FLAGS.task == "MAD_SRGAN":
                     fetches["discrim_loss"] = Net.discrim_loss
                     fetches["adversarial_loss"] = Net.adversarial_loss
                     fetches["content_loss"] = Net.content_loss
@@ -370,7 +370,7 @@ elif FLAGS.mode == 'train':
                 rate = (step + 1) * FLAGS.batch_size / (time.time() - start)
                 remaining = (max_iter - step) * FLAGS.batch_size / rate
                 print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
-                if FLAGS.task == 'SRGAN':
+                if FLAGS.task == 'SRGAN' or FLAGS.task == "MAD_SRGAN":
                     print("global_step", results["global_step"])
                     print("PSNR", results["PSNR"])
                     print("discrim_loss", results["discrim_loss"])

@@ -4,7 +4,7 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --summary_dir ./experiment_SRGAN_VGG54/log/ \
     --mode train \
     --is_training True \
-    --task SRGAN \
+    --task MAD_SRGAN \
     --batch_size 16 \
     --flip True \
     --random_crop True \

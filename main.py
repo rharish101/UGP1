@@ -5,7 +5,7 @@ from __future__ import print_function
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import os
-from lib.model import data_loader, generator, SRGAN, test_data_loader, inference_data_loader, save_images, SRResnet
+from lib.model import data_loader, generator, SRGAN, test_data_loader, inference_data_loader, save_images, SRResnet, MAD_SRGAN
 from lib.ops import *
 import math
 import time
@@ -231,6 +231,8 @@ elif FLAGS.mode == 'train':
         Net = SRGAN(data.inputs, data.targets, FLAGS)
     elif FLAGS.task =='SRResnet':
         Net = SRResnet(data.inputs, data.targets, FLAGS)
+    elif FLAGS.task == "MAD_SRGAN":
+        Net = MAD_SRGAN(data.inputs, data.targets, FLAGS)
     else:
         raise NotImplementedError('Unknown task type')
 
@@ -263,7 +265,7 @@ elif FLAGS.mode == 'train':
         tf.summary.image('outputs_summary', converted_outputs)
 
     # Add scalar summary
-    if FLAGS.task == 'SRGAN':
+    if FLAGS.task == "SRGAN" or FLAGS.task == "MAD_SRGAN":
         tf.summary.scalar('discriminator_loss', Net.discrim_loss)
         tf.summary.scalar('adversarial_loss', Net.adversarial_loss)
         tf.summary.scalar('content_loss', Net.content_loss)
@@ -285,7 +287,7 @@ elif FLAGS.mode == 'train':
     # Here if we restore the weight from the SRResnet the var_list2 do not need to contain the discriminator weights
     # On contrary, if you initial your weight from other SRGAN checkpoint, var_list2 need to contain discriminator
     # weights.
-    if FLAGS.task == 'SRGAN':
+    if FLAGS.task == "SRGAN" or FLAGS.task == "MAD_SRGAN":
         if FLAGS.pre_trained_model_type == 'SRGAN':
             var_list2 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator') + \
                       tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')

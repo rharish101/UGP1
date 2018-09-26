@@ -4,6 +4,7 @@ RAISE_HR.tar
 RAISE_LR.tar
 experiment_SRResnet/
 experiment_SRGAN_VGG54/
+experiment_MAD_SRGAN_VGG54/
 __pycache__/
 *.pyc
 vgg19/

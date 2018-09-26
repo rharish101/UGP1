@@ -10,6 +10,7 @@ from lib.ops import *
 import math
 import time
 import numpy as np
+import re
 
 Flags = tf.app.flags
 
@@ -287,7 +288,7 @@ elif FLAGS.mode == 'train':
     # Here if we restore the weight from the SRResnet the var_list2 do not need to contain the discriminator weights
     # On contrary, if you initial your weight from other SRGAN checkpoint, var_list2 need to contain discriminator
     # weights.
-    if FLAGS.task == "SRGAN" or FLAGS.task == "MAD_SRGAN":
+    if FLAGS.task == "SRGAN":
         if FLAGS.pre_trained_model_type == 'SRGAN':
             var_list2 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator') + \
                       tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
@@ -297,8 +298,24 @@ elif FLAGS.mode == 'train':
             raise ValueError('Unknown pre_trained model type!!')
     elif FLAGS.task == 'SRResnet':
         var_list2 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
+    elif FLAGS.task == "MAD_SRGAN":
+        if FLAGS.pre_trained_model_type == 'SRGAN':
+            var_list2 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator') + \
+                      tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='discriminator')
+        elif FLAGS.pre_trained_model_type == 'SRResnet':
+            var_list2 = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES, scope='generator')
+        else:
+            raise ValueError('Unknown pre_trained model type!!')
 
-    weight_initiallizer = tf.train.Saver(var_list2)
+        var_list3 = [{}] * 4
+        for var in var_list2:
+            num = int(re.search(r"mini_gen_[1-4]", var.name).group()[-1]) - 1
+            var_list3[num][re.sub(r"mini_gen_[1-4]/", "", var.name).split(":")[0]] = var
+
+    if FLAGS.task == "MAD_SRGAN":
+        weight_initiallizer = [tf.train.Saver(vdict) for vdict in var_list3]
+    else:
+        weight_initiallizer = tf.train.Saver(var_list2)
 
     # When using MSE loss, no need to restore the vgg net
     if not FLAGS.perceptual_mode == 'MSE':
@@ -318,7 +335,11 @@ elif FLAGS.mode == 'train':
 
         elif (FLAGS.checkpoint is not None) and (FLAGS.pre_trained_model is True):
             print('Loading weights from the pre-trained model')
-            weight_initiallizer.restore(sess, FLAGS.checkpoint)
+            if FLAGS.task == "MAD_SRGAN":
+                for initializer in weight_initiallizer:
+                    initializer.restore(sess, FLAGS.checkpoint)
+            else:
+                weight_initiallizer.restore(sess, FLAGS.checkpoint)
 
         if not FLAGS.perceptual_mode == 'MSE':
             vgg_restore.restore(sess, FLAGS.vgg_ckpt)

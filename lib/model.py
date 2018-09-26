@@ -535,16 +535,16 @@ def MAD_SRGAN(inputs, targets, FLAGS):
 
     # Build the generator part
     with tf.variable_scope('generator'):
-        output_shape = targets.get_shape().as_list()
-        output_channel = output_shape[-1]
+        output_channel = targets.get_shape().as_list()[-1]
+        input_shape = inputs.get_shape().as_list()
         with tf.variable_scope('mini_gen_1', reuse=False):
-            gen_output_1 = generator(inputs[:, :(output_shape[1]/2), :(output_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_1 = generator(inputs[:, :int(input_shape[1]/2), :int(input_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_2', reuse=False):
-            gen_output_2 = generator(inputs[:, :(output_shape[1]/2), (output_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_2 = generator(inputs[:, :int(input_shape[1]/2), int(input_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_3', reuse=False):
-            gen_output_3 = generator(inputs[:, (output_shape[1]/2):, :(output_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_3 = generator(inputs[:, int(input_shape[1]/2):, :int(input_shape[2]/2), :], output_channel, reuse=False, FLAGS=FLAGS)
         with tf.variable_scope('mini_gen_4', reuse=False):
-            gen_output_4 = generator(inputs[:, (output_shape[1]/2):, (output_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
+            gen_output_4 = generator(inputs[:, int(input_shape[1]/2):, int(input_shape[2]/2):, :], output_channel, reuse=False, FLAGS=FLAGS)
         gen_output_12 = tf.concat([gen_output_1, gen_output_2], axis=2)
         gen_output_34 = tf.concat([gen_output_3, gen_output_4], axis=2)
         gen_output = tf.concat([gen_output_12, gen_output_34], axis=1)

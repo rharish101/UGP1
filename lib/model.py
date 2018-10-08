@@ -218,15 +218,17 @@ def inference_data_loader(FLAGS):
     )
 
 
+
 # Definition of the generator
-def generator(gen_inputs, gen_output_channels, reuse=False, FLAGS=None):
+#generator without any sharing of weights
+def generator(gen_inputs, gen_output_channels, reuse, FLAGS=None):
     # Check the flag
     if FLAGS is None:
         raise  ValueError('No FLAGS is provided for generator')
 
     # The Bx residual blocks
-    def residual_block(inputs, output_channel, stride, scope):
-        with tf.variable_scope(scope):
+    def residual_block(inputs, output_channel, stride, scope,reuse=reuse):
+        with tf.variable_scope(scope,reuse=reuse):
             net = conv2(inputs, 3, output_channel, stride, use_bias=False, scope='conv_1')
             net = batchnorm(net, FLAGS.is_training)
             net = prelu_tf(net)
@@ -237,7 +239,7 @@ def generator(gen_inputs, gen_output_channels, reuse=False, FLAGS=None):
         return net
 
 
-    with tf.variable_scope('generator_unit', reuse=reuse):
+    with tf.variable_scope('generator_unit',reuse=reuse):
         # The input layer
         with tf.variable_scope('input_stage'):
             net = conv2(gen_inputs, 9, 64, 1, scope='conv')
@@ -267,6 +269,64 @@ def generator(gen_inputs, gen_output_channels, reuse=False, FLAGS=None):
             net = prelu_tf(net)
 
         with tf.variable_scope('output_stage'):
+            net = conv2(net, 9, gen_output_channels, 1, scope='conv')
+
+    return net
+
+
+#generator with sharing of weights.
+def generator1(gen_inputs,reuse,FLAGS=None):
+    if FLAGS is None:
+        raise  ValueError('No FLAGS is provided for generator')
+
+    # The Bx residual blocks
+    def residual_block(inputs, output_channel, stride, scope,reuse=reuse):
+        with tf.variable_scope(scope,reuse=reuse):
+            net = conv2(inputs, 3, output_channel, stride, use_bias=False, scope='conv_1')
+            net = batchnorm(net, FLAGS.is_training)
+            net = prelu_tf(net)
+            net = conv2(net, 3, output_channel, stride, use_bias=False, scope='conv_2')
+            net = batchnorm(net, FLAGS.is_training)
+            net = net + inputs
+
+        return net
+
+
+    with tf.variable_scope('generator_unit',reuse=reuse):
+        # The input layer
+        with tf.variable_scope('input_stage'):
+            net = conv2(gen_inputs, 9, 64, 1, scope='conv')
+            net = prelu_tf(net)
+
+        stage1_output = net
+
+        # The residual block parts
+        for i in range(1, FLAGS.num_resblock+1 , 1):
+            name_scope = 'resblock_%d'%(i)
+            net = residual_block(net, 64, 1, name_scope)
+
+        with tf.variable_scope('resblock_output'):
+            net = conv2(net, 3, 64, 1, use_bias=False, scope='conv')
+            net = batchnorm(net, FLAGS.is_training)
+
+        net = net + stage1_output
+
+        with tf.variable_scope('subpixelconv_stage1'):
+            net = conv2(net, 3, 256, 1, scope='conv')
+            net = pixelShuffler(net, scale=2)
+            net = prelu_tf(net)
+
+    return net
+
+
+def generator2(gen_inputs,gen_output_channels,reuse):
+    with tf.variable_scope('generator_unit'):
+        with tf.variable_scope('subpixelconv_stage2',reuse=reuse):
+            net = conv2(gen_inputs, 3, 256, 1, scope='conv')
+            net = pixelShuffler(net, scale=2)
+            net = prelu_tf(net)
+
+        with tf.variable_scope('output_stage',reuse=reuse):
             net = conv2(net, 9, gen_output_channels, 1, scope='conv')
 
     return net
@@ -537,14 +597,34 @@ def MAD_SRGAN(inputs, targets, FLAGS):
     with tf.variable_scope('generator'):
         output_channel  = targets.get_shape().as_list()[-1]
         input_shape = inputs.get_shape().as_list()
-        with tf.variable_scope('mini_gen_1', reuse=False):
-            gen_output_1 = generator(inputs[:, :int(5 * input_shape[1] / 8), :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
-        with tf.variable_scope('mini_gen_2', reuse=False):
-            gen_output_2 = generator(inputs[:, :int(5 * input_shape[1] / 8), int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
-        with tf.variable_scope('mini_gen_3', reuse=False):
-            gen_output_3 = generator(inputs[:, int(3 * input_shape[1] / 8):, :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
-        with tf.variable_scope('mini_gen_4', reuse=False):
-            gen_output_4 = generator(inputs[:, int(3 * input_shape[1] / 8):, int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
+        share = True
+        if share is False:
+            with tf.variable_scope('mini_gen_1', reuse=False):
+                gen_output_1 = generator(inputs[:, :int(5 * input_shape[1] / 8), :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
+            with tf.variable_scope('mini_gen_2', reuse=False):
+                gen_output_2 = generator(inputs[:, :int(5 * input_shape[1] / 8), int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
+            with tf.variable_scope('mini_gen_3', reuse=False):
+                gen_output_3 = generator(inputs[:, int(3 * input_shape[1] / 8):, :int(5 * input_shape[2] / 8), :], output_channel, reuse=False, FLAGS=FLAGS)
+            with tf.variable_scope('mini_gen_4', reuse=False):
+                gen_output_4 = generator(inputs[:, int(3 * input_shape[1] / 8):, int(3 * input_shape[2] / 8):, :], output_channel, reuse=False, FLAGS=FLAGS)
+
+        else:
+            with tf.variable_scope('min_gen_common'):
+                gen_output_share_1 = generator1(inputs[:, :int(5 * input_shape[1] / 8), :int(5 * input_shape[2] / 8), :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+                gen_output_share_2 = generator1(inputs[:, :int(5 * input_shape[1] / 8), int(3 * input_shape[2] / 8):, :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+                gen_output_share_3 = generator1(inputs[:, int(3 * input_shape[1] / 8):, :int(5 * input_shape[2] / 8), :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+                gen_output_share_4 = generator1(inputs[:, int(3 * input_shape[1] / 8):, int(3 * input_shape[2] / 8):, :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+
+            with tf.variable_scope('mini_gen_1', reuse=False):
+                gen_output_1 = generator2(gen_output_share_1,output_channel,reuse=False)
+            with tf.variable_scope('mini_gen_2', reuse=False):
+                gen_output_2 = generator2(gen_output_share_2,output_channel,reuse=False)
+            with tf.variable_scope('mini_gen_3', reuse=False):
+                gen_output_3 = generator2(gen_output_share_3,output_channel,reuse=False)
+            with tf.variable_scope('mini_gen_4', reuse=False):
+                gen_output_4 = generator2(gen_output_share_4,output_channel,reuse=False)
+
+
         small_shape = gen_output_1.get_shape().as_list()
         gen_output_12 = tf.concat([
             gen_output_1[:, :int(4 * small_shape[1] / 5), :int(4 * small_shape[2] / 5), :],
@@ -593,12 +673,19 @@ def MAD_SRGAN(inputs, targets, FLAGS):
     with tf.variable_scope('generator_loss'):
         # Content loss
         with tf.variable_scope('content_loss'):
+            L1 = False
             # Compute the euclidean distance between the two features
             diff = extracted_feature_gen - extracted_feature_target
             if FLAGS.perceptual_mode == 'MSE':
-                content_loss = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=[3]))
+                if L1:
+                    content_loss = tf.reduce_mean(tf.reduce_sum(tf.abs(diff), axis=[3]))
+                else:
+                    content_loss = tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=[3]))
             else:
-                content_loss = FLAGS.vgg_scaling*tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=[3]))
+                if L1:
+                    content_loss = FLAGS.vgg_scaling*tf.reduce_mean(tf.reduce_sum(tf.abs(diff), axis=[3]))
+                else:
+                    content_loss = FLAGS.vgg_scaling*tf.reduce_mean(tf.reduce_sum(tf.square(diff), axis=[3]))
 
         with tf.variable_scope('overlap_loss'):
             # Compute the euclidean distance between the overlaps

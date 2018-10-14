@@ -7,6 +7,7 @@ import tensorflow.contrib.slim as slim
 import os
 from lib.model import data_loader, generator, SRGAN, test_data_loader, inference_data_loader, save_images, SRResnet, MAD_SRGAN
 from lib.ops import *
+from lib.msssim import MultiScaleSSIM
 import math
 import time
 import numpy as np
@@ -98,7 +99,7 @@ if FLAGS.mode == 'test':
     path_HR = tf.placeholder(tf.string, shape=[], name='path_HR')
 
     with tf.variable_scope('generator'):
-        if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
+        if FLAGS.task == 'MAD_SRGAN' or FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         else:
             raise NotImplementedError('Unknown task!!')
@@ -256,6 +257,10 @@ elif FLAGS.mode == 'train':
     with tf.name_scope("compute_psnr"):
         psnr = compute_psnr(converted_targets, converted_outputs)
 
+    # Compute multi-scale SSIM
+    with tf.name_scope("compute_ssim"):
+        ssim = MultiScaleSSIM(converted_targets, converted_outputs)
+
     # Add image summaries
     with tf.name_scope('inputs_summary'):
         tf.summary.image('input_summary', converted_inputs)
@@ -267,26 +272,21 @@ elif FLAGS.mode == 'train':
         tf.summary.image('outputs_summary', converted_outputs)
 
     # Add scalar summary
+    tf.summary.scalar('content_loss', Net.content_loss)
+    tf.summary.scalar('learning_rate', Net.learning_rate)
+    tf.summary.scalar('PSNR', psnr)
+    tf.summary.scalar('SSIM', ssim)
     if FLAGS.task == "SRGAN":
         tf.summary.scalar('discriminator_loss', Net.discrim_loss)
         tf.summary.scalar('adversarial_loss', Net.adversarial_loss)
-        tf.summary.scalar('content_loss', Net.content_loss)
         tf.summary.scalar('generator_loss', Net.content_loss + FLAGS.ratio*Net.adversarial_loss)
-        tf.summary.scalar('PSNR', psnr)
-        tf.summary.scalar('learning_rate', Net.learning_rate)
     elif FLAGS.task == "MAD_SRGAN":
         tf.summary.scalar('discriminator_loss', Net.discrim_loss)
         tf.summary.scalar('adversarial_loss', Net.adversarial_loss)
         tf.summary.scalar('overlap_loss', Net.overlap_loss)
-        tf.summary.scalar('content_loss', Net.content_loss)
         tf.summary.scalar('generator_loss', Net.content_loss + Net.overlap_loss + FLAGS.ratio*Net.adversarial_loss)
-        tf.summary.scalar('PSNR', psnr)
-        tf.summary.scalar('learning_rate', Net.learning_rate)
     elif FLAGS.task == 'SRResnet':
-        tf.summary.scalar('content_loss', Net.content_loss)
         tf.summary.scalar('generator_loss', Net.content_loss)
-        tf.summary.scalar('PSNR', psnr)
-        tf.summary.scalar('learning_rate', Net.learning_rate)
 
 
     # Define the saver and weight initiallizer
@@ -375,26 +375,18 @@ elif FLAGS.mode == 'train':
             }
 
             if ((step+1) % FLAGS.display_freq) == 0:
+                fetches["learning_rate"] = Net.learning_rate
+                fetches["global_step"] = Net.global_step
+                fetches["PSNR"] = psnr
+                fetches["SSIM"] = ssim
+                fetches["content_loss"] = Net.content_loss
                 if FLAGS.task == 'SRGAN':
                     fetches["discrim_loss"] = Net.discrim_loss
                     fetches["adversarial_loss"] = Net.adversarial_loss
-                    fetches["content_loss"] = Net.content_loss
-                    fetches["PSNR"] = psnr
-                    fetches["learning_rate"] = Net.learning_rate
-                    fetches["global_step"] = Net.global_step
                 elif FLAGS.task == "MAD_SRGAN":
                     fetches["discrim_loss"] = Net.discrim_loss
                     fetches["adversarial_loss"] = Net.adversarial_loss
                     fetches["overlap_loss"] = Net.overlap_loss
-                    fetches["content_loss"] = Net.content_loss
-                    fetches["PSNR"] = psnr
-                    fetches["learning_rate"] = Net.learning_rate
-                    fetches["global_step"] = Net.global_step
-                elif FLAGS.task == 'SRResnet':
-                    fetches["content_loss"] = Net.content_loss
-                    fetches["PSNR"] = psnr
-                    fetches["learning_rate"] = Net.learning_rate
-                    fetches["global_step"] = Net.global_step
 
             if ((step+1) % FLAGS.summary_freq) == 0:
                 fetches["summary"] = sv.summary_op
@@ -411,26 +403,18 @@ elif FLAGS.mode == 'train':
                 rate = (step + 1) * FLAGS.batch_size / (time.time() - start)
                 remaining = (max_iter - step) * FLAGS.batch_size / rate
                 print("progress  epoch %d  step %d  image/sec %0.1f  remaining %dm" % (train_epoch, train_step, rate, remaining / 60))
+                print("global_step", results["global_step"])
+                print("learning_rate", results['learning_rate'])
+                print("PSNR", results["PSNR"])
+                print("SSIM", results["SSIM"])
+                print("content_loss", results["content_loss"])
                 if FLAGS.task == 'SRGAN':
-                    print("global_step", results["global_step"])
-                    print("PSNR", results["PSNR"])
                     print("discrim_loss", results["discrim_loss"])
                     print("adversarial_loss", results["adversarial_loss"])
-                    print("content_loss", results["content_loss"])
-                    print("learning_rate", results['learning_rate'])
                 if FLAGS.task == "MAD_SRGAN":
-                    print("global_step", results["global_step"])
-                    print("PSNR", results["PSNR"])
                     print("discrim_loss", results["discrim_loss"])
                     print("adversarial_loss", results["adversarial_loss"])
                     print("overlap_loss", results["overlap_loss"])
-                    print("content_loss", results["content_loss"])
-                    print("learning_rate", results['learning_rate'])
-                elif FLAGS.task == 'SRResnet':
-                    print("global_step", results["global_step"])
-                    print("PSNR", results["PSNR"])
-                    print("content_loss", results["content_loss"])
-                    print("learning_rate", results['learning_rate'])
 
             if ((step +1) % FLAGS.save_freq) == 0:
                 print('Save the checkpoint')

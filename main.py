@@ -117,13 +117,23 @@ if FLAGS.mode == 'test':
         converted_targets = tf.image.convert_image_dtype(targets, dtype=tf.uint8, saturate=True)
         converted_outputs = tf.image.convert_image_dtype(outputs, dtype=tf.uint8, saturate=True)
 
+    # Compute PSNR
+    with tf.name_scope("compute_psnr"):
+        psnr = compute_psnr(converted_targets, converted_outputs)
+
+    # Compute multi-scale SSIM
+    with tf.name_scope("compute_ssim"):
+        ssim = MultiScaleSSIM(converted_targets, converted_outputs)
+
     with tf.name_scope('encode_image'):
         save_fetch = {
             "path_LR": path_LR,
             "path_HR": path_HR,
             "inputs": tf.map_fn(tf.image.encode_png, converted_inputs, dtype=tf.string, name='input_pngs'),
             "outputs": tf.map_fn(tf.image.encode_png, converted_outputs, dtype=tf.string, name='output_pngs'),
-            "targets": tf.map_fn(tf.image.encode_png, converted_targets, dtype=tf.string, name='target_pngs')
+            "targets": tf.map_fn(tf.image.encode_png, converted_targets, dtype=tf.string, name='target_pngs'),
+            "psnr": psnr,
+            "ssim": ssim,
         }
 
     # Define the weight initiallizer (In inference time, we only need to restore the weight of the generator)
@@ -152,6 +162,9 @@ if FLAGS.mode == 'test':
             filesets = save_images(results, FLAGS)
             for i, f in enumerate(filesets):
                 print('evaluate image', f['name'])
+            psnr_res, ssim_res = sess.run([psnr, ssim], feed_dict={inputs_raw: input_im,
+                                                                   targets_raw: target_im})
+            print("PSNR: {}, SSIM: {}".format(results["psnr"], results["ssim"]))
 
 
 # the inference mode (just perform super resolution on the input image)

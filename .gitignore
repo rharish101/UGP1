@@ -13,3 +13,8 @@ __pycache__/
 *.pyc
 vgg19/
 vgg_19_2016_09_28.tar.gz
+report/report.pdf
+report/report.aux
+report/report.log
+report/report.bbl
+report/report.blg

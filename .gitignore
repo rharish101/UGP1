@@ -9,6 +9,7 @@ RAISE_LR.tar
 experiment_SRResnet/
 experiment_SRGAN_VGG54/
 experiment_MAD_SRGAN_VGG54/
+MADGAN_backup/
 __pycache__/
 *.pyc
 vgg19/

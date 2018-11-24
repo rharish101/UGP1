@@ -115,6 +115,11 @@ def _SSIMForMultiScale(img1, img2, max_val=255, filter_size=11,
   sigma22 -= mu22
   sigma12 -= mu12
 
+  # Making negative values 0
+  sigma11 = tf.abs(sigma11)
+  sigma12 = tf.abs(sigma12)
+  sigma22 = tf.abs(sigma22)
+
   # Calculate intermediate values used by both ssim and cs_map.
   c1 = (k1 * max_val) ** 2
   c2 = (k2 * max_val) ** 2

@@ -2,7 +2,7 @@
 CUDA_VISIBLE_DEVICES=0 python main.py \
     --output_dir ./result/MAD_SRGAN/ \
     --summary_dir ./result/MAD_SRGAN/log/ \
-    --mode test \
+    --mode inference \
     --is_training False \
     --task MAD_SRGAN \
     --batch_size 16 \

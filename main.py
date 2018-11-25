@@ -5,7 +5,7 @@ from __future__ import print_function
 import tensorflow as tf
 import tensorflow.contrib.slim as slim
 import os
-from lib.model import data_loader, generator, SRGAN, test_data_loader, inference_data_loader, save_images, SRResnet, MAD_SRGAN
+from lib.model import data_loader, generator, generator_madgan, SRGAN, test_data_loader, inference_data_loader, save_images, SRResnet, MAD_SRGAN
 from lib.ops import *
 from lib.msssim import MultiScaleSSIM
 import math
@@ -189,6 +189,8 @@ elif FLAGS.mode == 'inference':
     with tf.variable_scope('generator'):
         if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
+        elif FLAGS.task == 'MAD_SRGAN':
+            gen_output = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         else:
             raise NotImplementedError('Unknown task!!')
 

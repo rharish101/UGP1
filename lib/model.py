@@ -319,7 +319,7 @@ def generator1(gen_inputs,reuse,FLAGS=None):
     return net
 
 
-def generator2(gen_inputs,gen_output_channels,reuse):
+def generator2(gen_inputs,gen_output_channels,reuse, FLAGS=None):
     with tf.variable_scope('generator_unit'):
         with tf.variable_scope('subpixelconv_stage2',reuse=reuse):
             net = conv2(gen_inputs, 3, 256, 1, scope='conv')
@@ -330,6 +330,39 @@ def generator2(gen_inputs,gen_output_channels,reuse):
             net = conv2(net, 9, gen_output_channels, 1, scope='conv')
 
     return net
+
+# Fix for testing and inference
+def generator_madgan(gen_inputs, gen_output_channels, reuse, FLAGS=None):
+    input_shape = tf.shape(gen_inputs)
+    with tf.variable_scope('min_gen_common'):
+        gen_output_share_1 = generator1(gen_inputs[:, :tf.cast(5 * input_shape[1] / 8, tf.int32), :tf.cast(5 * input_shape[2] / 8, tf.int32), :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+        gen_output_share_2 = generator1(gen_inputs[:, :tf.cast(5 * input_shape[1] / 8, tf.int32), tf.cast(3 * input_shape[2] / 8, tf.int32):, :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+        gen_output_share_3 = generator1(gen_inputs[:, tf.cast(3 * input_shape[1] / 8, tf.int32):, :tf.cast(5 * input_shape[2] / 8, tf.int32), :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+        gen_output_share_4 = generator1(gen_inputs[:, tf.cast(3 * input_shape[1] / 8, tf.int32):, tf.cast(3 * input_shape[2] / 8, tf.int32):, :], reuse=tf.AUTO_REUSE, FLAGS=FLAGS)
+
+    with tf.variable_scope('mini_gen_1', reuse=False):
+        gen_output_1 = generator2(gen_output_share_1,gen_output_channels,reuse=False)
+    with tf.variable_scope('mini_gen_2', reuse=False):
+        gen_output_2 = generator2(gen_output_share_2,gen_output_channels,reuse=False)
+    with tf.variable_scope('mini_gen_3', reuse=False):
+        gen_output_3 = generator2(gen_output_share_3,gen_output_channels,reuse=False)
+    with tf.variable_scope('mini_gen_4', reuse=False):
+        gen_output_4 = generator2(gen_output_share_4,gen_output_channels,reuse=False)
+
+    small_shape = tf.shape(gen_output_1)
+    gen_output_12 = tf.concat([
+        gen_output_1[:, :tf.cast(4 * small_shape[1] / 5, tf.int32), :tf.cast(4 * small_shape[2] / 5, tf.int32), :],
+        gen_output_2[:, :tf.cast(4 * small_shape[1] / 5, tf.int32), tf.cast(1 * small_shape[2] / 5, tf.int32):, :],
+    ], axis=2)
+    gen_output_34 = tf.concat([
+        gen_output_3[:, tf.cast(1 * small_shape[1] / 5, tf.int32):, :tf.cast(4 * small_shape[2] / 5, tf.int32), :],
+        gen_output_4[:, tf.cast(1 * small_shape[1] / 5, tf.int32):, tf.cast(1 * small_shape[2] / 5, tf.int32):, :],
+    ], axis=2)
+    gen_output = tf.concat([gen_output_12, gen_output_34], axis=1)
+    if FLAGS.crop_size is not None:
+        gen_output.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, gen_output_channels])
+
+    return gen_output
 
 
 # Definition of the discriminator

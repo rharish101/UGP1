@@ -66,11 +66,11 @@
         The network uses the DCGAN \cite{dcgan} architecture.
         It consists of 8 convolution layers with $3\times3$ filter kernels.
         The feature maps obtained from the convolution layers is fed as input to two densely connected layers, which outputs the probability of classification using a sigmoid function.
-        The network is trained using high-resolution images which are $4\times$ downscaled and then fed as input to the network while the ground truth remains the upscaled images.
+        The network is trained using high-resolution images which are 4x downscaled and then fed as input to the network while the ground truth remains the upscaled images.
 
         \begin{figure}
             \centering
-            \includegraphics[width=0.3\textwidth]{images/overlap.png}
+            \includegraphics[width=0.25\textwidth]{images/overlap.png}
             \caption{Overlap in outputs}
             \label{fig:overlap}
         \end{figure}
@@ -142,7 +142,29 @@
             \label{fig:results}
         \end{figure*}
 
-        @VISHWAS: DO THIS (MENTION HYPERPARAMETER VALUES, AND CITE Tensorflow \cite{tensorflow} AND MULTI-SCALE SSIM \cite{msssim})
+        We ran our experiments using Tensorflow \cite{tensorflow} v1.10.
+        The system setup was a GPU server running Ubuntu 14.04.5 LTS, with a 12-core Intel Core i7 CPU and a single Nvidia GeForce GTX TITAN X (12GB) graphics card.
+        The code was adapted from the GitHub repository \href{https://github.com/brade31919/SRGAN-tensorflow}{SRGAN-tensorflow}, which is our reference SRGAN implementation.
+
+        For image pre-processing, we applied random crop and random flipping to generate inputs of $24 \times 24$ pixels, with a 4x output.
+        The optimizer used was Adam, with staircase decay for the learning rate.
+        PSNR and multi-scale SSIM \cite{msssim} were the additional metrics used for evaluating.
+        Additionally, images used in aliasing tests were also used as test images, in order to gauge the performance of the model with respect to possible aliasing effects.
+        Sample image outputs are shown in fig.~\ref{fig:samples}.
+
+        The values for our hyperparameters are:
+        \begin{itemize}
+            \item Batch size: 16
+            \item Residual blocks: 16
+            \item VGG scaling in perceptual loss: 0.0061
+            \item Adversarial loss weight ($\alpha$): 0.001
+            \item Overlap loss weight ($\beta$): 0.1
+            \item Learning rate: 0.0001
+            \item Learning rate decay rate: 0.1
+            \item Learning rate decay after: 100000 steps
+            \item Adam $\beta_1$ parameter: 0.9
+            \item Maximum epochs: 200000
+        \end{itemize}
 
         Results visualised via Tensorboard \cite{tensorflow} (see fig.~\ref{fig:results}) show that MAD-SRGAN with no sharing of parameters performed poorly as compared to SRGAN, resulting in noisy images.
         Enabling sharing of parameters in the lower layers resulted in a noticeable improvement over keeping parameters separate, and slight improvements over SRGAN.
@@ -152,56 +174,12 @@
         Addition of multiple discriminators in the form of one discriminator for each generator along with the global discriminator should help to further tune the output of each generator.
         However, we observed that this did not result in a noticeable improvement either in the losses, the metrics (PSNR or SSIM), or even when visually inspecting the output images.
 
-    % Lorem ipsum dolor sit amet\cite{srgan}, consectetur ad ipiscing elit\cite{tensorflow}.
-    % Praesent quis bibendum quam.
-    % Vivamus finibus non sapien in pellentesque.
-    % Mauris auctor a dui id pulvinar.
-    % In hac habitasse platea dictumst.
-    % Ut a viverra est, eu eleifend massa.
-    % Maecenas auctor varius massa, eu interdum quam suscipit sit amet.
-    % Pellentesque lobortis imperdiet ex, quis rhoncus nunc cursus ac.
-    % Quisque interdum leo in lacinia pellentesque.
-    % Praesent interdum rutrum elit, elementum vestibulum lacus mattis ut.
-    % Duis consectetur, ex quis efficitur varius, nulla mi imperdiet nisi, et fringilla nisi urna ut lacus.
-
-    % Cras ac quam sodales nisi molestie pretium et sed mi.
-    % Vivamus eleifend vitae arcu eu maximus.
-    % Vivamus hendrerit eleifend placerat.
-    % In nec justo augue.
-    % Cras dapibus risus volutpat diam porta, at fermentum purus laoreet.
-    % Nam sagittis vitae dui at volutpat.
-    % Nunc ullamcorper iaculis justo, vel vestibulum tortor aliquam ac.
-    % Vestibulum sed leo purus.
-    % Proin at nisl nibh.
-    % Phasellus sed scelerisque felis.
-    % Etiam ullamcorper quis tellus semper lobortis.
-
-    % Fusce at mauris euismod, faucibus risus sit amet, tempor urna.
-    % In hac habitasse platea dictumst.
-    % Nulla vel sollicitudin risus.
-    % Duis nulla est, condimentum eget eleifend id, mattis et orci.
-    % Sed placerat orci sit amet porttitor imperdiet.
-    % Morbi in magna in ex molestie porttitor quis a elit.
-    % Morbi enim quam, sodales sit amet aliquet elementum, volutpat at sapien.
-    % Aliquam in felis non ante vulputate interdum.
-    % Duis a cursus nisi.
-    % Suspendisse tristique nisl ut tincidunt mollis.
-    % Sed tincidunt tortor leo, in bibendum tellus commodo finibus.
-    % Phasellus et risus nisl.
-    % Etiam mattis neque ligula, ullamcorper vehicula leo tincidunt non.
-    % Fusce turpis dui, scelerisque nec vestibulum quis, fringilla tempus libero.
-    % Morbi lacus turpis, malesuada at felis ac, tincidunt egestas turpis.
-
-    % In a est quis lectus tempor molestie.
-    % In condimentum suscipit faucibus.
-    % Ut fermentum erat non lacus lacinia, in porttitor nisi feugiat.
-    % Sed sed fermentum purus, sit amet faucibus ex.
-    % Etiam finibus metus massa, sed varius quam vestibulum sit amet.
-    % Maecenas blandit mi vitae turpis lobortis tempus.
-    % Proin sit amet lacus lobortis, lobortis orci a, lobortis erat.
-    % Nullam eleifend ante in tempor viverra.
-    % Donec efficitur, justo non ultrices molestie, tellus ipsum tempus eros, vel venenatis metus erat non ipsum.
-    % Nam massa tellus, accumsan at mauris vel, molestie efficitur nulla.
+        \begin{figure*}
+            \centering
+            Yo
+            \caption{Sample Images}
+            \label{fig:samples}
+        \end{figure*}
 
     \bibliographystyle{ieeetr}
     \bibliography{refer}

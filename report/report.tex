@@ -145,6 +145,7 @@
         We ran our experiments using Tensorflow \cite{tensorflow} v1.10.
         The system setup was a GPU server running Ubuntu 14.04.5 LTS, with a 12-core Intel Core i7 CPU and a single Nvidia GeForce GTX TITAN X (12GB) graphics card.
         The code was adapted from the GitHub repository \href{https://github.com/brade31919/SRGAN-tensorflow}{SRGAN-tensorflow}, which is our reference SRGAN implementation.
+        The model was trained on the RAISE dataset \cite{raise} and the TESTIMAGES dataset \cite{testimages-1,testimages-2} was used for testing.
 
         For image pre-processing, we applied random crop and random flipping to generate inputs of $24 \times 24$ pixels, with a 4x output.
         The optimiser used was Adam, with staircase decay for the learning rate.

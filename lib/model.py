@@ -362,6 +362,11 @@ def generator_madgan(gen_inputs, gen_output_channels, reuse, FLAGS=None):
     if FLAGS.crop_size is not None:
         gen_output.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, gen_output_channels])
 
+    output_shape = tf.shape(gen_output)
+    target_shape = tf.shape(gen_inputs)
+    if output_shape[1] != target_shape[2] * 4 or output_shape[2] != target_shape[2] * 4:
+        gen_output = tf.image.resize_images(gen_output, [target_shape[1] * 4, target_shape[2] * 4])
+
     return gen_output
 
 
@@ -727,6 +732,11 @@ def MAD_SRGAN(inputs, targets, FLAGS):
         ], axis=2)
         gen_output = tf.concat([gen_output_12, gen_output_34], axis=1)
         gen_output.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
+
+        output_shape = tf.shape(gen_output)
+        target_shape = tf.shape(inputs)
+        if output_shape[1] != target_shape[2] * 4 or output_shape[2] != target_shape[2] * 4:
+            gen_output = tf.image.resize_images(gen_output, [target_shape[1] * 4, target_shape[2] * 4])
 
     # Build the fake discriminator
     different_disc = True

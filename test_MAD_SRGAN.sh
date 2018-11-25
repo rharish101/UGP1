@@ -6,8 +6,8 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --is_training False \
     --task MAD_SRGAN \
     --batch_size 16 \
-    --input_dir_LR ./data/TESTIMAGES_SAMPLING_PATTERNS_LR/ \
-    --input_dir_HR ./data/TESTIMAGES_SAMPLING_PATTERNS_HR/ \
+    --input_dir_LR ./data/mytests_lr/ \
+    --input_dir_HR ./data/mytests_hr/ \
     --num_resblock 16 \
     --perceptual_mode VGG54 \
     --pre_trained_model True \

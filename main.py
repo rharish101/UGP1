@@ -99,8 +99,10 @@ if FLAGS.mode == 'test':
     path_HR = tf.placeholder(tf.string, shape=[], name='path_HR')
 
     with tf.variable_scope('generator'):
-        if FLAGS.task == 'MAD_SRGAN' or FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
+        if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
+        elif FLAGS.task == 'MAD_SRGAN':
+            gen_output = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         else:
             raise NotImplementedError('Unknown task!!')
 

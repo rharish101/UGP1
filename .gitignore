@@ -16,3 +16,4 @@ report/report.blg
 report/report.out
 logs/
 result/
+single_gpu.patch

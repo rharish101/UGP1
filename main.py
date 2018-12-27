@@ -31,6 +31,7 @@ Flags.DEFINE_string('task', None, 'The task: SRGAN, SRResnet')
 Flags.DEFINE_integer('batch_size', 16, 'Batch size of the input batch')
 Flags.DEFINE_string('input_dir_LR', None, 'The directory of the input resolution input data')
 Flags.DEFINE_string('input_dir_HR', None, 'The directory of the high resolution input data')
+Flags.DEFINE_string('input_dir_SEG', None, 'The directory of the high resolution segmented data')
 Flags.DEFINE_boolean('flip', True, 'Whether random flip data augmentation is applied')
 Flags.DEFINE_boolean('random_crop', True, 'Whether perform the random crop')
 Flags.DEFINE_integer('crop_size', 24, 'The crop size of the training image')
@@ -97,12 +98,15 @@ if FLAGS.mode == 'test':
     targets_raw = tf.placeholder(tf.float32, shape=[1, None, None, 3], name='targets_raw')
     path_LR = tf.placeholder(tf.string, shape=[], name='path_LR')
     path_HR = tf.placeholder(tf.string, shape=[], name='path_HR')
+    seg_targets_raw = tf.placeholder(tf.float32, shape=[1, None, None, 3], name='seg_targets_raw')
+    path_SEG = tf.placeholder(tf.string, shape=[], name='path_SEG')
 
     with tf.variable_scope('generator'):
         if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
+            seg_output = None
         elif FLAGS.task == 'MAD_SRGAN':
-            gen_output = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
+            gen_output, seg_output = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         else:
             raise NotImplementedError('Unknown task!!')
 
@@ -112,12 +116,18 @@ if FLAGS.mode == 'test':
         # Deprocess the images outputed from the model
         inputs = deprocessLR(inputs_raw)
         targets = deprocess(targets_raw)
+        seg_targets = deprocess(seg_targets_raw)
         outputs = deprocess(gen_output)
+        if seg_output is not None:
+            seg_outputs = deprocess(seg_output)
 
         # Convert back to uint8
         converted_inputs = tf.image.convert_image_dtype(inputs, dtype=tf.uint8, saturate=True)
         converted_targets = tf.image.convert_image_dtype(targets, dtype=tf.uint8, saturate=True)
+        converted_seg_targets = tf.image.convert_image_dtype(seg_targets, dtype=tf.uint8, saturate=True)
         converted_outputs = tf.image.convert_image_dtype(outputs, dtype=tf.uint8, saturate=True)
+        if seg_output is not None:
+            converted_seg_outputs = tf.image.convert_image_dtype(seg_outputs, dtype=tf.uint8, saturate=True)
 
     # Compute PSNR
     with tf.name_scope("compute_psnr"):
@@ -138,6 +148,10 @@ if FLAGS.mode == 'test':
             "psnr": psnr,
             # "ssim": ssim,
         }
+        if seg_output is not None:
+            save_fetch["path_SEG"] = path_SEG,
+            save_fetch["seg_outputs"] = tf.map_fn(tf.image.encode_png, converted_seg_outputs, dtype=tf.string, name='seg_output_pngs'),
+            save_fetch["seg_targets"] = tf.map_fn(tf.image.encode_png, converted_seg_targets, dtype=tf.string, name='seg_target_pngs'),
 
     # Define the weight initiallizer (In inference time, we only need to restore the weight of the generator)
     var_list = tf.get_collection(tf.GraphKeys.GLOBAL_VARIABLES, scope='generator')
@@ -158,10 +172,17 @@ if FLAGS.mode == 'test':
         for i in range(max_iter):
             input_im = np.array([test_data.inputs[i]]).astype(np.float32)
             target_im = np.array([test_data.targets[i]]).astype(np.float32)
+            if seg_output is not None:
+                seg_target_im = np.array([test_data.seg_targets[i]]).astype(np.float32)
+            else:
+                seg_target_im = None
             path_lr = test_data.paths_LR[i]
             path_hr = test_data.paths_HR[i]
+            path_seg = test_data.paths_SEG[i]
             results = sess.run(save_fetch, feed_dict={inputs_raw: input_im, targets_raw: target_im,
-                                                      path_LR: path_lr, path_HR: path_hr})
+                                                      seg_targets_raw: seg_target_im,
+                                                      path_LR: path_lr, path_HR: path_hr,
+                                                      path_SEG: path_seg})
             filesets = save_images(results, FLAGS)
             for i, f in enumerate(filesets):
                 print('evaluate image', f['name'])
@@ -195,7 +216,7 @@ elif FLAGS.mode == 'inference':
         if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet':
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         elif FLAGS.task == 'MAD_SRGAN':
-            gen_output = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
+            gen_output, _ = generator_madgan(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
         else:
             raise NotImplementedError('Unknown task!!')
 
@@ -255,7 +276,7 @@ elif FLAGS.mode == 'train':
     elif FLAGS.task =='SRResnet':
         Net = SRResnet(data.inputs, data.targets, FLAGS)
     elif FLAGS.task == "MAD_SRGAN":
-        Net = MAD_SRGAN(data.inputs, data.targets, FLAGS)
+        Net = MAD_SRGAN(data.inputs, data.targets, data.seg_targets, FLAGS)
     else:
         raise NotImplementedError('Unknown task type')
 
@@ -266,11 +287,13 @@ elif FLAGS.mode == 'train':
         # Deprocess the images outputed from the model
         inputs = deprocessLR(data.inputs)
         targets = deprocess(data.targets)
+        seg_targets = deprocess(data.seg_targets)
         outputs = deprocess(Net.gen_output)
 
         # Convert back to uint8
         converted_inputs = tf.image.convert_image_dtype(inputs, dtype=tf.uint8, saturate=True)
         converted_targets = tf.image.convert_image_dtype(targets, dtype=tf.uint8, saturate=True)
+        converted_seg_targets = tf.image.convert_image_dtype(seg_targets, dtype=tf.uint8, saturate=True)
         converted_outputs = tf.image.convert_image_dtype(outputs, dtype=tf.uint8, saturate=True)
 
     # Compute PSNR
@@ -287,6 +310,10 @@ elif FLAGS.mode == 'train':
 
     with tf.name_scope('targets_summary'):
         tf.summary.image('target_summary', converted_targets)
+
+    if FLAGS.input_dir_SEG != 'None':
+        with tf.name_scope('seg_targets_summary'):
+            tf.summary.image('seg_target_summary', converted_seg_targets)
 
     with tf.name_scope('outputs_summary'):
         tf.summary.image('outputs_summary', converted_outputs)

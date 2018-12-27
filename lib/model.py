@@ -15,13 +15,16 @@ import numpy as np
 def data_loader(FLAGS):
     with tf.device('/cpu:0'):
         # Define the returned data batches
-        Data = collections.namedtuple('Data', 'paths_LR, paths_HR, inputs, targets, image_count, steps_per_epoch')
+        Data = collections.namedtuple('Data', 'paths_LR, paths_HR, paths_SEG, inputs, targets, seg_targets, image_count, steps_per_epoch')
 
         #Check the input directory
-        if (FLAGS.input_dir_LR == 'None') or (FLAGS.input_dir_HR == 'None'):
+        if (FLAGS.input_dir_LR is None) or (FLAGS.input_dir_HR is None):
             raise ValueError('Input directory is not provided')
 
-        if (not os.path.exists(FLAGS.input_dir_LR)) or (not os.path.exists(FLAGS.input_dir_HR)):
+        if (FLAGS.task == 'MAD_SRGAN') and (FLAGS.input_dir_SEG is None):
+            raise ValueError('Segmented image directory is not provided')
+
+        if (not os.path.exists(FLAGS.input_dir_LR)) or (not os.path.exists(FLAGS.input_dir_HR)) or (FLAGS.input_dir_SEG is not None and not os.path.exists(FLAGS.input_dir_SEG)):
             raise ValueError('Input directory not found')
 
         image_list_LR = os.listdir(FLAGS.input_dir_LR)
@@ -32,37 +35,50 @@ def data_loader(FLAGS):
         image_list_LR_temp = sorted(image_list_LR)
         image_list_LR = [os.path.join(FLAGS.input_dir_LR, _) for _ in image_list_LR_temp]
         image_list_HR = [os.path.join(FLAGS.input_dir_HR, _) for _ in image_list_LR_temp]
+        if FLAGS.input_dir_SEG is not None:
+            image_list_SEG = [os.path.join(FLAGS.input_dir_SEG, _) for _ in image_list_LR_temp]
+        else:
+            image_list_SEG = image_list_HR
 
         image_list_LR_tensor = tf.convert_to_tensor(image_list_LR, dtype=tf.string)
         image_list_HR_tensor = tf.convert_to_tensor(image_list_HR, dtype=tf.string)
+        image_list_SEG_tensor = tf.convert_to_tensor(image_list_SEG, dtype=tf.string)
 
         with tf.variable_scope('load_image'):
             # define the image list queue
             # image_list_LR_queue = tf.train.string_input_producer(image_list_LR, shuffle=False, capacity=FLAGS.name_queue_capacity)
             # image_list_HR_queue = tf.train.string_input_producer(image_list_HR, shuffle=False, capacity=FLAGS.name_queue_capacity)
             #print('[Queue] image list queue use shuffle: %s'%(FLAGS.mode == 'Train'))
-            output = tf.train.slice_input_producer([image_list_LR_tensor, image_list_HR_tensor],
+            output = tf.train.slice_input_producer([image_list_LR_tensor, image_list_HR_tensor, image_list_SEG_tensor],
                                                    shuffle=False, capacity=FLAGS.name_queue_capacity)
 
             # Reading and decode the images
             reader = tf.WholeFileReader(name='image_reader')
             image_LR = tf.read_file(output[0])
             image_HR = tf.read_file(output[1])
+            image_SEG = tf.read_file(output[2])
             input_image_LR = tf.image.decode_png(image_LR, channels=3)
             input_image_HR = tf.image.decode_png(image_HR, channels=3)
+            if FLAGS.input_dir_SEG is not None:
+                input_image_SEG = tf.image.decode_png(image_SEG, channels=1)
+            else:
+                input_image_SEG = tf.image.decode_png(image_SEG, channels=3)
             input_image_LR = tf.image.convert_image_dtype(input_image_LR, dtype=tf.float32)
             input_image_HR = tf.image.convert_image_dtype(input_image_HR, dtype=tf.float32)
+            input_image_SEG = tf.image.convert_image_dtype(input_image_SEG, dtype=tf.float32)
 
             assertion = tf.assert_equal(tf.shape(input_image_LR)[2], 3, message="image does not have 3 channels")
             with tf.control_dependencies([assertion]):
                 input_image_LR = tf.identity(input_image_LR)
                 input_image_HR = tf.identity(input_image_HR)
+                input_image_SEG = tf.identity(input_image_SEG)
 
             # Normalize the low resolution image to [0, 1], high resolution to [-1, 1]
             a_image = preprocessLR(input_image_LR)
             b_image = preprocess(input_image_HR)
+            c_image = preprocess(input_image_SEG)
 
-            inputs, targets = [a_image, b_image]
+            inputs, targets, seg_targets = [a_image, b_image, c_image]
 
         # The data augmentation part
         with tf.name_scope('data_preprocessing'):
@@ -73,6 +89,7 @@ def data_loader(FLAGS):
                     # Set the shape of the input image. the target will have 4X size
                     input_size = tf.shape(inputs)
                     target_size = tf.shape(targets)
+                    seg_target_size = tf.shape(seg_targets)
                     offset_w = tf.cast(tf.floor(tf.random_uniform([], 0, tf.cast(input_size[1], tf.float32) - FLAGS.crop_size)),
                                        dtype=tf.int32)
                     offset_h = tf.cast(tf.floor(tf.random_uniform([], 0, tf.cast(input_size[0], tf.float32) - FLAGS.crop_size)),
@@ -83,15 +100,20 @@ def data_loader(FLAGS):
                                                                FLAGS.crop_size)
                         targets = tf.image.crop_to_bounding_box(targets, offset_h*4, offset_w*4, FLAGS.crop_size*4,
                                                                 FLAGS.crop_size*4)
+                        seg_targets = tf.image.crop_to_bounding_box(seg_targets, offset_h*4, offset_w*4, FLAGS.crop_size*4,
+                                                                FLAGS.crop_size*4)
                     elif FLAGS.task == 'denoise':
                         inputs = tf.image.crop_to_bounding_box(inputs, offset_h, offset_w, FLAGS.crop_size,
                                                                FLAGS.crop_size)
                         targets = tf.image.crop_to_bounding_box(targets, offset_h, offset_w,
                                                                 FLAGS.crop_size, FLAGS.crop_size)
+                        seg_targets = tf.image.crop_to_bounding_box(seg_targets, offset_h, offset_w,
+                                                                FLAGS.crop_size, FLAGS.crop_size)
                 # Do not perform crop
                 else:
                     inputs = tf.identity(inputs)
                     targets = tf.identity(targets)
+                    seg_targets = tf.identity(seg_targets)
 
             with tf.variable_scope('random_flip'):
                 # Check for random flip:
@@ -102,37 +124,57 @@ def data_loader(FLAGS):
 
                     input_images = random_flip(inputs, decision)
                     target_images = random_flip(targets, decision)
+                    seg_target_images = random_flip(seg_targets, decision)
                 else:
                     input_images = tf.identity(inputs)
                     target_images = tf.identity(targets)
+                    seg_target_images = tf.identity(seg_targets)
 
             if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet' or FLAGS.task == 'MAD_SRGAN':
                 input_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 3])
                 target_images.set_shape([FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
+                if FLAGS.input_dir_SEG is not None:
+                    seg_target_images.set_shape([FLAGS.crop_size*4, FLAGS.crop_size*4, 1])
+                else:
+                    seg_target_images.set_shape([FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
             elif FLAGS.task == 'denoise':
                 input_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 3])
                 target_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 3])
+                if FLAGS.input_dir_SEG is not None:
+                    seg_target_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 1])
+                else:
+                    seg_target_images.set_shape([FLAGS.crop_size, FLAGS.crop_size, 3])
 
         if FLAGS.mode == 'train':
-            paths_LR_batch, paths_HR_batch, inputs_batch, targets_batch = tf.train.shuffle_batch([output[0], output[1], input_images, target_images],
+            paths_LR_batch, paths_HR_batch, paths_SEG_batch, inputs_batch, targets_batch, seg_targets_batch = tf.train.shuffle_batch([output[0], output[1], output[2], input_images, target_images, seg_target_images],
                                             batch_size=FLAGS.batch_size, capacity=FLAGS.image_queue_capacity+4*FLAGS.batch_size,
                                             min_after_dequeue=FLAGS.image_queue_capacity, num_threads=FLAGS.queue_thread)
         else:
-            paths_LR_batch, paths_HR_batch, inputs_batch, targets_batch = tf.train.batch([output[0], output[1], input_images, target_images],
+            paths_LR_batch, paths_HR_batch, paths_SEG_batch, inputs_batch, targets_batch, seg_targets_batch = tf.train.batch([output[0], output[1], output[2], input_images, target_images, seg_target_images],
                                             batch_size=FLAGS.batch_size, num_threads=FLAGS.queue_thread, allow_smaller_final_batch=True)
 
         steps_per_epoch = int(math.ceil(len(image_list_LR) / FLAGS.batch_size))
         if FLAGS.task == 'SRGAN' or FLAGS.task == 'SRResnet' or FLAGS.task == 'MAD_SRGAN':
             inputs_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
             targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
+            if FLAGS.input_dir_SEG is not None:
+                seg_targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 1])
+            else:
+                seg_targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size*4, FLAGS.crop_size*4, 3])
         elif FLAGS.task == 'denoise':
             inputs_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
             targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
+            if FLAGS.input_dir_SEG is not None:
+                seg_targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 1])
+            else:
+                seg_targets_batch.set_shape([FLAGS.batch_size, FLAGS.crop_size, FLAGS.crop_size, 3])
     return Data(
         paths_LR=paths_LR_batch,
         paths_HR=paths_HR_batch,
+        paths_SEG=paths_SEG_batch,
         inputs=inputs_batch,
         targets=targets_batch,
+        seg_targets=seg_targets_batch,
         image_count=len(image_list_LR),
         steps_per_epoch=steps_per_epoch
     )
@@ -141,15 +183,19 @@ def data_loader(FLAGS):
 # The test data loader. Allow input image with different size
 def test_data_loader(FLAGS):
     # Get the image name list
-    if (FLAGS.input_dir_LR == 'None') or (FLAGS.input_dir_HR == 'None'):
+    if (FLAGS.input_dir_LR is None) or (FLAGS.input_dir_HR is None):
         raise ValueError('Input directory is not provided')
 
-    if (not os.path.exists(FLAGS.input_dir_LR)) or (not os.path.exists(FLAGS.input_dir_HR)):
+    if (not os.path.exists(FLAGS.input_dir_LR)) or (not os.path.exists(FLAGS.input_dir_HR)) or (FLAGS.input_dir_SEG is not None and not os.path.exists(FLAGS.input_dir_SEG)):
         raise ValueError('Input directory not found')
 
     image_list_LR_temp = os.listdir(FLAGS.input_dir_LR)
     image_list_LR = [os.path.join(FLAGS.input_dir_LR, _) for _ in image_list_LR_temp if _.split('.')[-1] == 'png']
     image_list_HR = [os.path.join(FLAGS.input_dir_HR, _) for _ in image_list_LR_temp if _.split('.')[-1] == 'png']
+    if FLAGS.input_dir_SEG is not None:
+        image_list_SEG = [os.path.join(FLAGS.input_dir_SEG, _) for _ in image_list_LR_temp if _.split('.')[-1] == 'png']
+    else:
+        image_list_SEG = image_list_HR
 
     # Read in and preprocess the images
     def preprocess_test(name, mode):
@@ -170,22 +216,25 @@ def test_data_loader(FLAGS):
 
     image_LR = [preprocess_test(_, 'LR') for _ in image_list_LR]
     image_HR = [preprocess_test(_, 'HR') for _ in image_list_HR]
+    image_SEG = [preprocess_test(_, 'HR') for _ in image_list_SEG]
 
     # Push path and image into a list
-    Data = collections.namedtuple('Data', 'paths_LR, paths_HR, inputs, targets')
+    Data = collections.namedtuple('Data', 'paths_LR, paths_HR, paths_SEG, inputs, targets, seg_targets')
 
     return Data(
         paths_LR = image_list_LR,
         paths_HR = image_list_HR,
+        paths_SEG = image_list_SEG,
         inputs = image_LR,
-        targets = image_HR
+        targets = image_HR,
+        seg_targets = image_SEG
     )
 
 
 # The inference data loader. Allow input image with different size
 def inference_data_loader(FLAGS):
     # Get the image name list
-    if (FLAGS.input_dir_LR == 'None'):
+    if (FLAGS.input_dir_LR is None):
         raise ValueError('Input directory is not provided')
 
     if not os.path.exists(FLAGS.input_dir_LR):
@@ -367,7 +416,7 @@ def generator_madgan(gen_inputs, gen_output_channels, reuse, FLAGS=None):
     if output_shape[1] != target_shape[2] * 4 or output_shape[2] != target_shape[2] * 4:
         gen_output = tf.image.resize_images(gen_output, [target_shape[1] * 4, target_shape[2] * 4])
 
-    return gen_output
+    return gen_output, gen_output
 
 
 # Definition of the discriminator
@@ -683,7 +732,7 @@ def SRResnet(inputs, targets, FLAGS):
     )
 
 
-def MAD_SRGAN(inputs, targets, FLAGS):
+def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
     # Define the container of the parameter
     Network = collections.namedtuple('Network', 'discrim_real_output, discrim_fake_output, discrim_loss, \
         discrim_grads_and_vars, adversarial_loss, overlap_loss, content_loss, gen_grads_and_vars, gen_output, train, \

@@ -68,6 +68,43 @@ def conv2(
             )
 
 
+# Define the transpose convolution building block
+def conv2tr(
+    batch_input,
+    kernel=3,
+    output_channel=64,
+    stride=1,
+    use_bias=True,
+    scope="conv",
+):
+    # kernel: An integer specifying the width and height of the 2D convolution
+    # window
+    with tf.variable_scope(scope):
+        if use_bias:
+            return slim.conv2d_transpose(
+                batch_input,
+                output_channel,
+                [kernel, kernel],
+                stride,
+                "SAME",
+                data_format="NHWC",
+                activation_fn=None,
+                weights_initializer=tf.contrib.layers.xavier_initializer(),
+            )
+        else:
+            return slim.conv2d_transpose(
+                batch_input,
+                output_channel,
+                [kernel, kernel],
+                stride,
+                "SAME",
+                data_format="NHWC",
+                activation_fn=None,
+                weights_initializer=tf.contrib.layers.xavier_initializer(),
+                biases_initializer=None,
+            )
+
+
 def conv2_NCHW(
     batch_input,
     kernel=3,

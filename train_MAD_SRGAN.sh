@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 CUDA_VISIBLE_DEVICES=0 python main.py \
-    --output_dir ./experiment_MAD_SRGAN_VGG54/new1/ \
-    --summary_dir ./experiment_MAD_SRGAN_VGG54/new1/log/ \
+    --output_dir ./experiment_MAD_SRGAN_VGG54/ \
+    --summary_dir ./experiment_MAD_SRGAN_VGG54/log/ \
     --mode train \
     --is_training True \
     --task MAD_SRGAN \
@@ -9,14 +9,16 @@ CUDA_VISIBLE_DEVICES=0 python main.py \
     --flip True \
     --random_crop True \
     --crop_size 24 \
-    --input_dir_LR ./data/RAISE_LR/ \
-    --input_dir_HR ./data/RAISE_HR/ \
+    --input_dir_LR ./data/VOC_LR/ \
+    --input_dir_HR ./data/VOC_HR/ \
+    --input_dir_SEG ./data/VOC_SEG/ \
     --num_resblock 16 \
+    --seg_classes 21 \
     --perceptual_mode VGG54 \
     --name_queue_capacity 4096 \
     --image_queue_capacity 4096 \
     --ratio 0.001 \
-    --overlap_ratio 0.1 \
+    --seg_ratio 0.00001 \
     --learning_rate 0.0001 \
     --decay_step 100000 \
     --decay_rate 0.1 \

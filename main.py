@@ -65,6 +65,7 @@ Flags.DEFINE_string(
     None,
     "The directory of the high resolution segmented data",
 )
+Flags.DEFINE_integer("seg_classes", 21, "No. of classes for segmentation")
 Flags.DEFINE_boolean(
     "flip", True, "Whether random flip data augmentation is applied"
 )
@@ -100,7 +101,7 @@ Flags.DEFINE_float(
     "ratio", 0.001, "The ratio between content loss and adversarial loss"
 )
 Flags.DEFINE_float(
-    "overlap_ratio", 0.1, "The ratio between content loss and overlap loss"
+    "seg_ratio", 0.00001, "The ratio between content loss and segmentation loss"
 )
 Flags.DEFINE_float(
     "vgg_scaling",
@@ -183,7 +184,7 @@ if FLAGS.mode == "test":
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
             seg_output = None
         elif FLAGS.task == "MAD_SRGAN":
-            gen_output, seg_output = generator_madgan(
+            gen_output, seg_output, _ = generator_madgan(
                 inputs_raw, 3, reuse=False, FLAGS=FLAGS
             )
         else:
@@ -437,6 +438,7 @@ elif FLAGS.mode == "train":
     elif FLAGS.task == "SRResnet":
         Net = SRResnet(data.inputs, data.targets, FLAGS)
     elif FLAGS.task == "MAD_SRGAN":
+        # Net = MAD_SRGAN(data.inputs, data.targets, FLAGS)
         Net = MAD_SRGAN(data.inputs, data.targets, data.seg_targets, FLAGS)
     else:
         raise NotImplementedError("Unknown task type")
@@ -502,11 +504,11 @@ elif FLAGS.mode == "train":
     elif FLAGS.task == "MAD_SRGAN":
         tf.summary.scalar("discriminator_loss", Net.discrim_loss)
         tf.summary.scalar("adversarial_loss", Net.adversarial_loss)
-        tf.summary.scalar("overlap_loss", Net.overlap_loss)
+        tf.summary.scalar("segmentation_loss", Net.seg_loss)
         tf.summary.scalar(
             "generator_loss",
             Net.content_loss
-            + Net.overlap_loss
+            + FLAGS.seg_ratio * Net.seg_loss
             + FLAGS.ratio * Net.adversarial_loss,
         )
     elif FLAGS.task == "SRResnet":
@@ -552,16 +554,20 @@ elif FLAGS.mode == "train":
         else:
             raise ValueError("Unknown pre_trained model type!!")
 
-        var_list3 = [{}, {}, {}, {}, {}]
+        var_list3 = []
+        for seg_class in range(FLAGS.seg_classes):
+            var_list3.append({})
         for var in var_list2:
             if "min_gen_common" in var.name:
                 var_list3[0][
                     var.name.replace("min_gen_common/", "").split(":")[0]
                 ] = var
-            else:
-                num = int(re.search(r"mini_gen_[1-4]", var.name).group()[-1])
+            elif "mini_gen_" in var.name:
+                num = int(
+                    re.search(r"mini_gen_\d+", var.name).group().split("_")[-1]
+                )
                 var_list3[num][
-                    re.sub(r"mini_gen_[1-4]/", "", var.name).split(":")[0]
+                    re.sub(r"mini_gen_\d+/", "", var.name).split(":")[0]
                 ] = var
 
     if FLAGS.task == "MAD_SRGAN":
@@ -633,7 +639,7 @@ elif FLAGS.mode == "train":
                 elif FLAGS.task == "MAD_SRGAN":
                     fetches["discrim_loss"] = Net.discrim_loss
                     fetches["adversarial_loss"] = Net.adversarial_loss
-                    fetches["overlap_loss"] = Net.overlap_loss
+                    fetches["seg_loss"] = Net.seg_loss
 
             if ((step + 1) % FLAGS.summary_freq) == 0:
                 fetches["summary"] = sv.summary_op
@@ -670,7 +676,7 @@ elif FLAGS.mode == "train":
                 if FLAGS.task == "MAD_SRGAN":
                     print("discrim_loss", results["discrim_loss"])
                     print("adversarial_loss", results["adversarial_loss"])
-                    print("overlap_loss", results["overlap_loss"])
+                    print("seg_loss", results["seg_loss"])
 
             if ((step + 1) % FLAGS.save_freq) == 0:
                 print("Save the checkpoint")

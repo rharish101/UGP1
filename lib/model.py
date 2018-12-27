@@ -707,6 +707,155 @@ def generator_madgan(gen_inputs, gen_output_channels, reuse, FLAGS=None):
     return gen_output, gen_output
 
 
+# Generators for MAD-SRGAN with segmentation
+def generator_before_seg(gen_inputs, reuse, FLAGS=None):
+    if FLAGS is None:
+        raise ValueError("No FLAGS is provided for generator")
+
+    # The Bx residual blocks
+    def residual_block(inputs, output_channel, stride, scope, reuse=reuse):
+        with tf.variable_scope(scope, reuse=reuse):
+            net = conv2(
+                inputs,
+                3,
+                output_channel,
+                stride,
+                use_bias=False,
+                scope="conv_1",
+            )
+            net = batchnorm(net, FLAGS.is_training)
+            net = prelu_tf(net)
+            net = conv2(
+                net, 3, output_channel, stride, use_bias=False, scope="conv_2"
+            )
+            net = batchnorm(net, FLAGS.is_training)
+            net = net + inputs
+
+        return net
+
+    with tf.variable_scope("generator_unit", reuse=reuse):
+        # The input layer
+        with tf.variable_scope("input_stage"):
+            net = conv2(gen_inputs, 9, 64, 1, scope="conv")
+            net = prelu_tf(net)
+
+        stage1_output = net
+
+        # The residual block parts
+        for i in range(1, FLAGS.num_resblock + 1, 1):
+            name_scope = "resblock_%d" % (i)
+            net = residual_block(net, 64, 1, name_scope)
+
+        with tf.variable_scope("resblock_output"):
+            net = conv2(net, 3, 64, 1, use_bias=False, scope="conv")
+            net = batchnorm(net, FLAGS.is_training)
+
+        net = net + stage1_output
+
+    return net
+
+
+def generator_after_seg(gen_inputs, gen_output_channels, reuse, FLAGS=None):
+    with tf.variable_scope("generator_unit"):
+        with tf.variable_scope("subpixelconv_stage1"):
+            net = conv2(gen_inputs, 3, 256, 1, scope="conv")
+            net = pixelShuffler(net, scale=2)
+            net = prelu_tf(net)
+
+        with tf.variable_scope("subpixelconv_stage2", reuse=reuse):
+            net = conv2(net, 3, 256, 1, scope="conv")
+            net = pixelShuffler(net, scale=2)
+            net = prelu_tf(net)
+
+        with tf.variable_scope("output_stage", reuse=reuse):
+            net = conv2(net, 9, gen_output_channels, 1, scope="conv")
+
+    return net
+
+
+def seg_decoder(inputs, seg_classes, reuse, FLAGS=None):
+    if FLAGS is None:
+        raise ValueError("No FLAGS is provided for generator")
+
+    # The Ck convolutional blocks
+    def c_block(inputs, output_channel, scope, strides=1, reuse=reuse):
+        with tf.variable_scope(scope, reuse=reuse):
+            net = conv2tr(inputs, 4, output_channel, strides, use_bias=True)
+            net = batchnorm(net, FLAGS.is_training)
+            net = tf.nn.relu(net)
+        return net
+
+    # The CDk convolutional blocks with dropout
+    def cd_block(inputs, output_channel, scope, reuse=reuse):
+        with tf.variable_scope(scope, reuse=reuse):
+            net = conv2tr(inputs, 4, output_channel, 1, use_bias=True)
+            net = batchnorm(net, FLAGS.is_training)
+            net = tf.nn.dropout(net, 0.5)
+            net = tf.nn.relu(net)
+        return net
+
+    # U-Net decoder
+    with tf.variable_scope("seg_decoder", reuse=reuse):
+        net_1 = cd_block(inputs, 512, "block_1")
+        net_2 = cd_block(net_1, 1024, "block_2")
+        net_3 = cd_block(net_2, 1024, "block_3")
+        net = c_block(net_3, 1024, "block_4")
+        net = tf.concat([net, net_3], -1)
+        net = c_block(net, 1024, "block_5")
+        net = tf.concat([net, net_2], -1)
+        net = c_block(net, 512, "block_6")
+        net = tf.concat([net, net_1], -1)
+        net = c_block(net, 256, "block_7", strides=2)
+        net = c_block(net, 128, "block_8", strides=2)
+        net = conv2tr(net, 1, seg_classes, 1, use_bias=True, scope="block_9")
+
+    return tf.nn.softmax(net), net
+
+
+def generator_madgan_seg(gen_inputs, gen_output_channels, reuse, FLAGS=None):
+    with tf.variable_scope("min_gen_common"):
+        gen_output_share = generator_before_seg(
+            gen_inputs, reuse=False, FLAGS=FLAGS
+        )
+
+    gen_outputs = []
+    for i in range(FLAGS.seg_classes):
+        with tf.variable_scope("mini_gen_{}".format(i), reuse=False):
+            gen_outputs.append(
+                generator_after_seg(
+                    gen_output_share, gen_output_channels, reuse=False
+                )
+            )
+    gen_outputs = tf.stack(gen_outputs)
+    # gen_outputs = tf.stack(gen_outputs, axis=3)
+
+    seg_output, seg_output_raw = seg_decoder(
+        gen_output_share, FLAGS.seg_classes, reuse=False, FLAGS=FLAGS
+    )
+
+    segmented = tf.argmax(seg_output, axis=-1, output_type=tf.int32)
+    # Get tensor where the value at an index is its index
+    shape = tf.shape(segmented)
+    indices = tf.stack(
+        tf.meshgrid(
+            tf.range(shape[0]),
+            tf.range(shape[1]),
+            tf.range(shape[2]),
+            indexing="ij",
+        ),
+        axis=-1,
+    )
+
+    # Get tensor for choosing which index of which segmentation class generator
+    # is to be used at an index
+    indices = tf.concat([tf.expand_dims(segmented, axis=-1), indices], -1)
+    gen_output = tf.gather_nd(gen_outputs, indices)
+
+    # gen_output = tf.reduce_sum(tf.expand_dims(seg_output, -1) * gen_outputs, axis=-2)
+
+    return gen_output, seg_output, seg_output_raw
+
+
 # Definition of the discriminator
 def discriminator(dis_inputs, FLAGS=None):
     if FLAGS is None:
@@ -1115,7 +1264,7 @@ def SRResnet(inputs, targets, FLAGS):
     )
 
 
-def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
+def MAD_SRGAN_old(inputs, targets, FLAGS):
     # Define the container of the parameter
     Network = collections.namedtuple(
         "Network",
@@ -1607,6 +1756,181 @@ def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
         discrim_grads_and_vars=discrim_grads_and_vars,
         adversarial_loss=exp_averager.average(adversarial_loss),
         overlap_loss=exp_averager.average(overlap_loss),
+        content_loss=exp_averager.average(content_loss),
+        gen_grads_and_vars=gen_grads_and_vars,
+        gen_output=gen_output,
+        train=tf.group(update_loss, incr_global_step, gen_train),
+        global_step=global_step,
+        learning_rate=learning_rate,
+    )
+
+
+def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
+    # Define the container of the parameter
+    Network = collections.namedtuple(
+        "Network",
+        "discrim_real_output, discrim_fake_output, discrim_loss, \
+        discrim_grads_and_vars, adversarial_loss, seg_loss, content_loss, \
+        gen_grads_and_vars, gen_output, train, \
+        global_step, learning_rate",
+    )
+
+    # Build the generator part
+    with tf.variable_scope("generator"):
+        gen_output, seg_output, seg_output_raw = generator_madgan_seg(
+            inputs, 3, reuse=False, FLAGS=FLAGS
+        )
+
+    with tf.name_scope("fake_discriminator"):
+        with tf.variable_scope("discriminator", reuse=False):
+            discrim_fake_output = discriminator(gen_output, FLAGS=FLAGS)
+
+    with tf.name_scope("real_discriminator"):
+        with tf.variable_scope("discriminator", reuse=True):
+            discrim_real_output = discriminator(targets, FLAGS=FLAGS)
+
+    # Use the VGG54 feature
+    if FLAGS.perceptual_mode == "VGG54":
+        with tf.name_scope("vgg19_1") as scope:
+            extracted_feature_gen = VGG19_slim(
+                gen_output, FLAGS.perceptual_mode, reuse=False, scope=scope
+            )
+        with tf.name_scope("vgg19_2") as scope:
+            extracted_feature_target = VGG19_slim(
+                targets, FLAGS.perceptual_mode, reuse=True, scope=scope
+            )
+
+    # Use the VGG22 feature
+    elif FLAGS.perceptual_mode == "VGG22":
+        with tf.name_scope("vgg19_1") as scope:
+            extracted_feature_gen = VGG19_slim(
+                gen_output, FLAGS.perceptual_mode, reuse=False, scope=scope
+            )
+        with tf.name_scope("vgg19_2") as scope:
+            extracted_feature_target = VGG19_slim(
+                targets, FLAGS.perceptual_mode, reuse=True, scope=scope
+            )
+
+    # Use MSE loss directly
+    elif FLAGS.perceptual_mode == "MSE":
+        extracted_feature_gen = gen_output
+        extracted_feature_target = targets
+
+    else:
+        raise NotImplementedError("Unknown perceptual type!!")
+
+    # Calculating the generator loss
+    with tf.variable_scope("generator_loss"):
+        # Content loss
+        with tf.variable_scope("content_loss"):
+            L1 = False
+            # Compute the euclidean distance between the two features
+            diff = extracted_feature_gen - extracted_feature_target
+            if FLAGS.perceptual_mode == "MSE":
+                if L1:
+                    content_loss = tf.reduce_mean(
+                        tf.reduce_sum(tf.abs(diff), axis=[3])
+                    )
+                else:
+                    content_loss = tf.reduce_mean(
+                        tf.reduce_sum(tf.square(diff), axis=[3])
+                    )
+            else:
+                if L1:
+                    content_loss = FLAGS.vgg_scaling * tf.reduce_mean(
+                        tf.reduce_sum(tf.abs(diff), axis=[3])
+                    )
+                else:
+                    content_loss = FLAGS.vgg_scaling * tf.reduce_mean(
+                        tf.reduce_sum(tf.square(diff), axis=[3])
+                    )
+
+        with tf.variable_scope("segmentation_loss"):
+            # Categorical cross-entropy for segmentation
+            seg_targets_one_hot = tf.one_hot(
+                tf.to_int32(seg_targets), depth=FLAGS.seg_classes
+            )
+            seg_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
+                labels=seg_targets_one_hot, logits=seg_output_raw
+            )
+            seg_loss = tf.reduce_mean(tf.reduce_sum(seg_loss, axis=[1, 2]))
+
+        with tf.variable_scope("adversarial_loss"):
+            adversarial_loss = tf.reduce_mean(
+                -tf.log(discrim_fake_output + FLAGS.EPS)
+            )
+
+        gen_loss = (
+            content_loss
+            + (FLAGS.seg_ratio) * seg_loss
+            + (FLAGS.ratio) * adversarial_loss
+        )
+        print(adversarial_loss.get_shape())
+        print(seg_loss.get_shape())
+        print(content_loss.get_shape())
+
+    # Calculating the discriminator loss
+    with tf.variable_scope("discriminator_loss"):
+        discrim_fake_loss = tf.log(1 - discrim_fake_output + FLAGS.EPS)
+        discrim_real_loss = tf.log(discrim_real_output + FLAGS.EPS)
+
+        discrim_loss = tf.reduce_mean(-(discrim_fake_loss + discrim_real_loss))
+
+    # Define the learning rate and global step
+    with tf.variable_scope("get_learning_rate_and_global_step"):
+        global_step = tf.contrib.framework.get_or_create_global_step()
+        learning_rate = tf.train.exponential_decay(
+            FLAGS.learning_rate,
+            global_step,
+            FLAGS.decay_step,
+            FLAGS.decay_rate,
+            staircase=FLAGS.stair,
+        )
+        incr_global_step = tf.assign(global_step, global_step + 1)
+
+    with tf.variable_scope("dicriminator_train"):
+        discrim_tvars = tf.get_collection(
+            tf.GraphKeys.TRAINABLE_VARIABLES, scope="discriminator"
+        )
+        discrim_optimizer = tf.train.AdamOptimizer(
+            learning_rate, beta1=FLAGS.beta
+        )
+        discrim_grads_and_vars = discrim_optimizer.compute_gradients(
+            discrim_loss, discrim_tvars
+        )
+        discrim_train = discrim_optimizer.apply_gradients(
+            discrim_grads_and_vars
+        )
+
+    with tf.variable_scope("generator_train"):
+        # Need to wait discriminator to perform train step
+        with tf.control_dependencies(
+            [discrim_train] + tf.get_collection(tf.GraphKeys.UPDATE_OPS)
+        ):
+            gen_tvars = tf.get_collection(
+                tf.GraphKeys.TRAINABLE_VARIABLES, scope="generator"
+            )
+            gen_optimizer = tf.train.AdamOptimizer(
+                learning_rate, beta1=FLAGS.beta
+            )
+            gen_grads_and_vars = gen_optimizer.compute_gradients(
+                gen_loss, gen_tvars
+            )
+            gen_train = gen_optimizer.apply_gradients(gen_grads_and_vars)
+
+    # [ToDo] If we do not use moving average on loss??
+    exp_averager = tf.train.ExponentialMovingAverage(decay=0.99)
+    update_loss = exp_averager.apply(
+        [discrim_loss, adversarial_loss, seg_loss, content_loss]
+    )
+
+    return Network(
+        discrim_real_output=discrim_real_output,
+        discrim_fake_output=discrim_fake_output,
+        discrim_loss=exp_averager.average(discrim_loss),
+        discrim_grads_and_vars=discrim_grads_and_vars,
+        adversarial_loss=exp_averager.average(adversarial_loss),
+        seg_loss=exp_averager.average(seg_loss),
         content_loss=exp_averager.average(content_loss),
         gen_grads_and_vars=gen_grads_and_vars,
         gen_output=gen_output,

@@ -9,6 +9,22 @@ import keras
 import pdb
 
 
+def colourify(image, seg_classes):
+    """Map segmentation classes to a colourmap."""
+    with tf.name_scope("colourify"):
+        cmap = tf.random_uniform(
+            shape=(seg_classes, 3),
+            minval=0,
+            maxval=255,
+            dtype=tf.int32,
+            seed=5,
+        )
+        cmap = tf.cast(cmap, dtype=tf.uint8)
+        if len(image.get_shape()) != 4:
+            image = tf.expand_dims(image, -1)
+        return tf.gather_nd(cmap, image)
+
+
 def preprocess(image):
     with tf.name_scope("preprocess"):
         # [0, 1] => [-1, 1]

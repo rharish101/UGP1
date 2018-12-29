@@ -111,9 +111,7 @@ def data_loader(FLAGS):
             input_image_HR = tf.image.convert_image_dtype(
                 input_image_HR, dtype=tf.float32
             )
-            input_image_SEG = tf.image.convert_image_dtype(
-                input_image_SEG, dtype=tf.float32
-            )
+            input_image_SEG = tf.to_int32(input_image_SEG)
 
             assertion = tf.assert_equal(
                 tf.shape(input_image_LR)[2],
@@ -128,7 +126,7 @@ def data_loader(FLAGS):
             # Normalize the low res image to [0, 1], high res to [-1, 1]
             a_image = preprocessLR(input_image_LR)
             b_image = preprocess(input_image_HR)
-            c_image = preprocess(input_image_SEG)
+            c_image = input_image_SEG
 
             inputs, targets, seg_targets = [a_image, b_image, c_image]
 
@@ -851,7 +849,9 @@ def generator_madgan_seg(gen_inputs, gen_output_channels, reuse, FLAGS=None):
     indices = tf.concat([tf.expand_dims(segmented, axis=-1), indices], -1)
     gen_output = tf.gather_nd(gen_outputs, indices)
 
-    # gen_output = tf.reduce_sum(tf.expand_dims(seg_output, -1) * gen_outputs, axis=-2)
+    # gen_output = tf.reduce_sum(
+    # tf.expand_dims(seg_output, -1) * gen_outputs, axis=-2
+    # )
 
     return gen_output, seg_output, seg_output_raw
 
@@ -1771,7 +1771,7 @@ def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
         "Network",
         "discrim_real_output, discrim_fake_output, discrim_loss, \
         discrim_grads_and_vars, adversarial_loss, seg_loss, content_loss, \
-        gen_grads_and_vars, gen_output, train, \
+        gen_grads_and_vars, gen_output, seg_output, train, \
         global_step, learning_rate",
     )
 
@@ -1780,6 +1780,7 @@ def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
         gen_output, seg_output, seg_output_raw = generator_madgan_seg(
             inputs, 3, reuse=False, FLAGS=FLAGS
         )
+        seg_out_proc = tf.argmax(seg_output, axis=-1, output_type=tf.int32)
 
     with tf.name_scope("fake_discriminator"):
         with tf.variable_scope("discriminator", reuse=False):
@@ -1848,7 +1849,7 @@ def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
         with tf.variable_scope("segmentation_loss"):
             # Categorical cross-entropy for segmentation
             seg_targets_one_hot = tf.one_hot(
-                tf.to_int32(seg_targets), depth=FLAGS.seg_classes
+                seg_targets, depth=FLAGS.seg_classes
             )
             seg_loss = tf.nn.softmax_cross_entropy_with_logits_v2(
                 labels=seg_targets_one_hot, logits=seg_output_raw
@@ -1934,6 +1935,7 @@ def MAD_SRGAN(inputs, targets, seg_targets, FLAGS):
         content_loss=exp_averager.average(content_loss),
         gen_grads_and_vars=gen_grads_and_vars,
         gen_output=gen_output,
+        seg_output=seg_out_proc,
         train=tf.group(update_loss, incr_global_step, gen_train),
         global_step=global_step,
         learning_rate=learning_rate,

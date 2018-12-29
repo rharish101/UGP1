@@ -7,7 +7,7 @@ import os
 from lib.model import (
     data_loader,
     generator,
-    generator_madgan,
+    generator_madgan_seg,
     SRGAN,
     test_data_loader,
     inference_data_loader,
@@ -101,7 +101,9 @@ Flags.DEFINE_float(
     "ratio", 0.001, "The ratio between content loss and adversarial loss"
 )
 Flags.DEFINE_float(
-    "seg_ratio", 0.00001, "The ratio between content loss and segmentation loss"
+    "seg_ratio",
+    0.00001,
+    "The ratio between content loss and segmentation loss",
 )
 Flags.DEFINE_float(
     "vgg_scaling",
@@ -174,9 +176,14 @@ if FLAGS.mode == "test":
     )
     path_LR = tf.placeholder(tf.string, shape=[], name="path_LR")
     path_HR = tf.placeholder(tf.string, shape=[], name="path_HR")
-    seg_targets_raw = tf.placeholder(
-        tf.float32, shape=[1, None, None, 3], name="seg_targets_raw"
-    )
+    if FLAGS.input_dir_SEG is not None:
+        seg_targets_raw = tf.placeholder(
+            tf.int32, shape=[1, None, None, 1], name="seg_targets_raw"
+        )
+    else:
+        seg_targets_raw = tf.placeholder(
+            tf.int32, shape=[1, None, None, 3], name="seg_targets_raw"
+        )
     path_SEG = tf.placeholder(tf.string, shape=[], name="path_SEG")
 
     with tf.variable_scope("generator"):
@@ -184,7 +191,7 @@ if FLAGS.mode == "test":
             gen_output = generator(inputs_raw, 3, reuse=False, FLAGS=FLAGS)
             seg_output = None
         elif FLAGS.task == "MAD_SRGAN":
-            gen_output, seg_output, _ = generator_madgan(
+            gen_output, seg_output, _ = generator_madgan_seg(
                 inputs_raw, 3, reuse=False, FLAGS=FLAGS
             )
         else:
@@ -196,10 +203,12 @@ if FLAGS.mode == "test":
         # Deprocess the images outputed from the model
         inputs = deprocessLR(inputs_raw)
         targets = deprocess(targets_raw)
-        seg_targets = deprocess(seg_targets_raw)
         outputs = deprocess(gen_output)
         if seg_output is not None:
-            seg_outputs = deprocess(seg_output)
+            seg_targets = colourify(seg_targets_raw, FLAGS.seg_classes)
+            seg_outputs = colourify(seg_output, FLAGS.seg_classes)
+        else:
+            seg_targets = seg_targets_raw
 
         # Convert back to uint8
         converted_inputs = tf.image.convert_image_dtype(
@@ -208,16 +217,12 @@ if FLAGS.mode == "test":
         converted_targets = tf.image.convert_image_dtype(
             targets, dtype=tf.uint8, saturate=True
         )
-        converted_seg_targets = tf.image.convert_image_dtype(
-            seg_targets, dtype=tf.uint8, saturate=True
-        )
+        converted_seg_targets = tf.cast(seg_targets, dtype=tf.uint8)
         converted_outputs = tf.image.convert_image_dtype(
             outputs, dtype=tf.uint8, saturate=True
         )
         if seg_output is not None:
-            converted_seg_outputs = tf.image.convert_image_dtype(
-                seg_outputs, dtype=tf.uint8, saturate=True
-            )
+            converted_seg_outputs = tf.cast(seg_outputs, dtype=tf.uint8)
 
     # Compute PSNR
     with tf.name_scope("compute_psnr"):
@@ -450,8 +455,12 @@ elif FLAGS.mode == "train":
         # Deprocess the images outputed from the model
         inputs = deprocessLR(data.inputs)
         targets = deprocess(data.targets)
-        seg_targets = deprocess(data.seg_targets)
         outputs = deprocess(Net.gen_output)
+        if FLAGS.input_dir_SEG is not None:
+            seg_targets = colourify(data.seg_targets, FLAGS.seg_classes)
+            seg_outputs = colourify(Net.seg_output, FLAGS.seg_classes)
+        else:
+            seg_targets = data.seg_targets
 
         # Convert back to uint8
         converted_inputs = tf.image.convert_image_dtype(
@@ -460,12 +469,12 @@ elif FLAGS.mode == "train":
         converted_targets = tf.image.convert_image_dtype(
             targets, dtype=tf.uint8, saturate=True
         )
-        converted_seg_targets = tf.image.convert_image_dtype(
-            seg_targets, dtype=tf.uint8, saturate=True
-        )
+        converted_seg_targets = tf.cast(seg_targets, dtype=tf.uint8)
         converted_outputs = tf.image.convert_image_dtype(
             outputs, dtype=tf.uint8, saturate=True
         )
+        if FLAGS.input_dir_SEG is not None:
+            converted_seg_outputs = tf.cast(seg_outputs, dtype=tf.uint8)
 
     # Compute PSNR
     with tf.name_scope("compute_psnr"):
@@ -485,6 +494,8 @@ elif FLAGS.mode == "train":
     if FLAGS.input_dir_SEG != "None":
         with tf.name_scope("seg_targets_summary"):
             tf.summary.image("seg_target_summary", converted_seg_targets)
+        with tf.name_scope("seg_outputs_summary"):
+            tf.summary.image("seg_output_summary", converted_seg_outputs)
 
     with tf.name_scope("outputs_summary"):
         tf.summary.image("outputs_summary", converted_outputs)
